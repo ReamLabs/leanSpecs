@@ -1,161 +1,28 @@
-# Phase 0 -- Beacon Chain Fork Choice
+# pqdevnet-0 Fork Choice
 
 ## Introduction
 
-This document is the beacon chain fork choice spec, part of Phase 0. It assumes
-the [beacon chain state transition function spec](./beacon-chain.md).
+This specs intend to be a bare-minimal fork choice rule that enables pqdevnet validators
+to attest to the same chain.
 
-## Protocols
+It is originally based on the combined Beacon Chain fork choice specs from Phase0 to
+Electra. Fulu is excluded as its specs is a work in progress at the time of writing.
 
-### `ExecutionEngine`
+### Why minimal Beacon fork choice than 3SF?
 
-*Note*: The `notify_forkchoice_updated` function is added to the
-`ExecutionEngine` protocol to signal the fork choice updates.
+- Beacon fork choice is battle-tested and well understood, therefore is ideal as a
+control factor for pqdevnet.
+- 3SF, on the other hand, is an entirely new mechanism with many non-battle-tested
+subcomponents (e.g. Majority Fork Choice function, modified TOB-SVD, a new finality
+protocol, etc.) that easily warrants its own devnet(s).
 
-The body of this function is implementation dependent. The Engine API may be
-used to implement it with an external execution engine.
+### Key differences from Beacon Chain specs
 
-#### `notify_forkchoice_updated`
-
-This function performs three actions *atomically*:
-
-- Re-organizes the execution payload chain and corresponding state to make
-  `head_block_hash` the head.
-- Updates safe block hash with the value provided by `safe_block_hash`
-  parameter.
-- Applies finality to the execution state: it irreversibly persists the chain of
-  all execution payloads and corresponding state, up to and including
-  `finalized_block_hash`.
-
-Additionally, if `payload_attributes` is provided, this function sets in motion
-a payload build process on top of `head_block_hash` and returns an identifier of
-initiated process.
-
-```python
-def notify_forkchoice_updated(
-    self: ExecutionEngine,
-    head_block_hash: Hash32,
-    safe_block_hash: Hash32,
-    finalized_block_hash: Hash32,
-    payload_attributes: Optional[PayloadAttributes],
-) -> Optional[PayloadId]: ...
-```
-
-*Note*: The `(head_block_hash, finalized_block_hash)` values of the
-`notify_forkchoice_updated` function call maps on the `POS_FORKCHOICE_UPDATED`
-event defined in the
-[EIP-3675](https://eips.ethereum.org/EIPS/eip-3675#definitions). As per
-EIP-3675, before a post-transition block is finalized,
-`notify_forkchoice_updated` MUST be called with
-`finalized_block_hash = Hash32()`.
-
-*Note*: Client software MUST NOT call this function until the transition
-conditions are met on the PoW network, i.e. there exists a block for which
-`is_valid_terminal_pow_block` function returns `True`.
-
-*Note*: Client software MUST call this function to initiate the payload build
-process to produce the merge transition block; the `head_block_hash` parameter
-MUST be set to the hash of a terminal PoW block in this case.
-
-##### `safe_block_hash`
-
-The `safe_block_hash` parameter MUST be set to return value of
-[`get_safe_execution_block_hash(store: Store)`](../../fork_choice/safe-block.md#get_safe_execution_block_hash)
-function.
-
-##### `should_override_forkchoice_update`
-
-If proposer boost re-orgs are implemented and enabled (see `get_proposer_head`)
-then additional care must be taken to ensure that the proposer is able to build
-an execution payload.
-
-If a beacon node knows it will propose the next block then it SHOULD NOT call
-`notify_forkchoice_updated` if it detects the current head to be weak and
-potentially capable of being re-orged. Complete information for evaluating
-`get_proposer_head` _will not_ be available immediately after the receipt of a
-new block, so an approximation of those conditions should be used when deciding
-whether to send or suppress a fork choice notification. The exact conditions
-used may be implementation-specific, a suggested implementation is below.
-
-Let `validator_is_connected(validator_index: ValidatorIndex) -> bool` be a
-function that indicates whether the validator with `validator_index` is
-connected to the node (e.g. has sent an unexpired proposer preparation message).
-
-```python
-def should_override_forkchoice_update(store: Store, head_root: Root) -> bool:
-    head_block = store.blocks[head_root]
-    parent_root = head_block.parent_root
-    parent_block = store.blocks[parent_root]
-    current_slot = get_current_slot(store)
-    proposal_slot = head_block.slot + Slot(1)
-
-    # Only re-org the head_block block if it arrived later than the attestation deadline.
-    head_late = is_head_late(store, head_root)
-
-    # Shuffling stable.
-    shuffling_stable = is_shuffling_stable(proposal_slot)
-
-    # FFG information of the new head_block will be competitive with the current head.
-    ffg_competitive = is_ffg_competitive(store, head_root, parent_root)
-
-    # Do not re-org if the chain is not finalizing with acceptable frequency.
-    finalization_ok = is_finalization_ok(store, proposal_slot)
-
-    # Only suppress the fork choice update if we are confident that we will propose the next block.
-    parent_state_advanced = store.block_states[parent_root].copy()
-    process_slots(parent_state_advanced, proposal_slot)
-    proposer_index = get_beacon_proposer_index(parent_state_advanced)
-    proposing_reorg_slot = validator_is_connected(proposer_index)
-
-    # Single slot re-org.
-    parent_slot_ok = parent_block.slot + 1 == head_block.slot
-    proposing_on_time = is_proposing_on_time(store)
-
-    # Note that this condition is different from `get_proposer_head`
-    current_time_ok = head_block.slot == current_slot or (
-        proposal_slot == current_slot and proposing_on_time
-    )
-    single_slot_reorg = parent_slot_ok and current_time_ok
-
-    # Check the head weight only if the attestations from the head slot have already been applied.
-    # Implementations may want to do this in different ways, e.g. by advancing
-    # `store.time` early, or by counting queued attestations during the head block's slot.
-    if current_slot > head_block.slot:
-        head_weak = is_head_weak(store, head_root)
-        parent_strong = is_parent_strong(store, parent_root)
-    else:
-        head_weak = True
-        parent_strong = True
-
-    return all(
-        [
-            head_late,
-            shuffling_stable,
-            ffg_competitive,
-            finalization_ok,
-            proposing_reorg_slot,
-            single_slot_reorg,
-            head_weak,
-            parent_strong,
-        ]
-    )
-```
-
-*Note*: The ordering of conditions is a suggestion only. Implementations are
-free to optimize by re-ordering the conditions from least to most expensive and
-by returning early if any of the early conditions are `False`.
-
-In case `should_override_forkchoice_update` returns `True`, a node SHOULD
-instead call `notify_forkchoice_updated` with parameters appropriate for
-building upon the parent block. Care must be taken to compute the correct
-`payload_attributes`, as they may change depending on the slot of the block to
-be proposed (due to withdrawals).
-
-If `should_override_forkchoice_update` returns `True` but `get_proposer_head`
-later chooses the canonical head rather than its parent, then this is a
-misprediction that will cause the node to construct a payload with less notice.
-The result of `get_proposer_head` MUST be preferred over the result of
-`should_override_forkchoice_update` (when proposer reorgs are enabled).
+- Remove `ExecutionEngine` related mechanisms, e.g. `notify_forkchoice_updated()`,
+  `should_override_forkchoice_update`, `PayloadAttributes`, etc.
+- Remove slashings e.g. `on_attester_slashing()`, etc.
+- Remove The Merge-related logic (that was not explicitly removed in Capella)
+- Remove blobs
 
 ## Fork choice
 
@@ -169,8 +36,6 @@ update `store` by running:
   received
 - `on_attestation(store, attestation)` whenever an attestation `attestation` is
   received
-- `on_attester_slashing(store, attester_slashing)` whenever an attester slashing
-  `attester_slashing` is received
 
 Any of the above handlers that trigger an unhandled exception (e.g. a failed
 assert or an out-of-range list access) are considered invalid. Invalid calls to
@@ -183,24 +48,10 @@ handlers must not modify `store`.
    handled by [UNIX time](https://en.wikipedia.org/wiki/Unix_time).
 2. **Honest clocks**: Honest nodes are assumed to have clocks synchronized
    within `SECONDS_PER_SLOT` seconds of each other.
-3. **Eth1 data**: The large `ETH1_FOLLOW_DISTANCE` specified in the
-   [honest validator document](./validator.md) should ensure that
-   `state.latest_eth1_data` of the canonical beacon chain remains consistent
-   with the canonical Ethereum proof-of-work chain. If not, emergency manual
-   intervention will be required.
-4. **Manual forks**: Manual forks may arbitrarily change the fork choice rule
-   but are expected to be enacted at epoch transitions, with the fork details
-   reflected in `state.fork`.
-5. **Implementation**: The implementation found in this specification is
+3. **Implementation**: The implementation found in this specification is
    constructed for ease of understanding rather than for optimization in
    computation, space, or any other resource. A number of optimized alternatives
    can be found [here](https://github.com/protolambda/lmd-ghost).
-
-### Custom types
-
-| Name        | SSZ equivalent | Description                              |
-| ----------- | -------------- | ---------------------------------------- |
-| `PayloadId` | `Bytes8`       | Identifier of a payload building process |
 
 ### Constant
 
@@ -222,110 +73,6 @@ handlers must not modify `store`.
   `calculate_committee_fraction`.
 
 ### Helpers
-
-#### `PayloadAttributes`
-
-Used to signal to initiate the payload build process via
-`notify_forkchoice_updated`.
-
-```python
-@dataclass
-class PayloadAttributes(object):
-    timestamp: uint64
-    prev_randao: Bytes32
-    suggested_fee_recipient: ExecutionAddress
-    # [New in Capella]
-    withdrawals: Sequence[Withdrawal]
-    # [New in Deneb:EIP4788]
-    parent_beacon_block_root: Root
-```
-
-#### `PowBlock`
-
-```python
-class PowBlock(Container):
-    block_hash: Hash32
-    parent_hash: Hash32
-    total_difficulty: uint256
-```
-
-#### `is_data_available`
-
-*[New in Deneb:EIP4844]*
-
-The implementation of `is_data_available` will become more sophisticated during
-later scaling upgrades. Initially, verification requires every verifying actor
-to retrieve all matching `Blob`s and `KZGProof`s, and validate them with
-`verify_blob_kzg_proof_batch`.
-
-The block MUST NOT be considered valid until all valid `Blob`s have been
-downloaded. Blocks that have been previously validated as available SHOULD be
-considered available even if the associated `Blob`s have subsequently been
-pruned.
-
-*Note*: Extraneous or invalid Blobs (in addition to KZG expected/referenced
-valid blobs) received on the p2p network MUST NOT invalidate a block that is
-otherwise valid and available.
-
-```python
-def is_data_available(
-    beacon_block_root: Root, blob_kzg_commitments: Sequence[KZGCommitment]
-) -> bool:
-    # `retrieve_blobs_and_proofs` is implementation and context dependent
-    # It returns all the blobs for the given block root, and raises an exception if not available
-    # Note: the p2p network does not guarantee sidecar retrieval outside of
-    # `MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS`
-    blobs, proofs = retrieve_blobs_and_proofs(beacon_block_root)
-
-    return verify_blob_kzg_proof_batch(blobs, blob_kzg_commitments, proofs)
-```
-
-#### `get_pow_block`
-
-Let `get_pow_block(block_hash: Hash32) -> Optional[PowBlock]` be the function
-that given the hash of the PoW block returns its data. It may result in `None`
-if the requested block is not yet available.
-
-*Note*: The `eth_getBlockByHash` JSON-RPC method may be used to pull this
-information from an execution client.
-
-#### `is_valid_terminal_pow_block`
-
-Used by fork-choice handler, `on_block`.
-
-```python
-def is_valid_terminal_pow_block(block: PowBlock, parent: PowBlock) -> bool:
-    is_total_difficulty_reached = block.total_difficulty >= TERMINAL_TOTAL_DIFFICULTY
-    is_parent_total_difficulty_valid = parent.total_difficulty < TERMINAL_TOTAL_DIFFICULTY
-    return is_total_difficulty_reached and is_parent_total_difficulty_valid
-```
-
-#### `validate_merge_block`
-
-```python
-def validate_merge_block(block: BeaconBlock) -> None:
-    """
-    Check the parent PoW block of execution payload is a valid terminal PoW block.
-
-    Note: Unavailable PoW block(s) may later become available,
-    and a client software MAY delay a call to ``validate_merge_block``
-    until the PoW block(s) become available.
-    """
-    if TERMINAL_BLOCK_HASH != Hash32():
-        # If `TERMINAL_BLOCK_HASH` is used as an override, the activation epoch must be reached.
-        assert compute_epoch_at_slot(block.slot) >= TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH
-        assert block.body.execution_payload.parent_hash == TERMINAL_BLOCK_HASH
-        return
-
-    pow_block = get_pow_block(block.body.execution_payload.parent_hash)
-    # Check if `pow_block` is available
-    assert pow_block is not None
-    pow_parent = get_pow_block(pow_block.parent_hash)
-    # Check if `pow_parent` is available
-    assert pow_parent is not None
-    # Check if `pow_block` is a valid terminal PoW block
-    assert is_valid_terminal_pow_block(pow_block, pow_parent)
-```
 
 #### `LatestMessage`
 
@@ -989,28 +736,4 @@ def on_attestation(store: Store, attestation: Attestation, is_from_block: bool =
 
     # Update latest messages for attesting indices
     update_latest_messages(store, indexed_attestation.attesting_indices, attestation)
-```
-
-#### `on_attester_slashing`
-
-*Note*: `on_attester_slashing` should be called while syncing and a client MUST
-maintain the equivocation set of `AttesterSlashing`s from at least the latest
-finalized checkpoint.
-
-```python
-def on_attester_slashing(store: Store, attester_slashing: AttesterSlashing) -> None:
-    """
-    Run ``on_attester_slashing`` immediately upon receiving a new ``AttesterSlashing``
-    from either within a block or directly on the wire.
-    """
-    attestation_1 = attester_slashing.attestation_1
-    attestation_2 = attester_slashing.attestation_2
-    assert is_slashable_attestation_data(attestation_1.data, attestation_2.data)
-    state = store.block_states[store.justified_checkpoint.root]
-    assert is_valid_indexed_attestation(state, attestation_1)
-    assert is_valid_indexed_attestation(state, attestation_2)
-
-    indices = set(attestation_1.attesting_indices).intersection(attestation_2.attesting_indices)
-    for index in indices:
-        store.equivocating_indices.add(index)
 ```
