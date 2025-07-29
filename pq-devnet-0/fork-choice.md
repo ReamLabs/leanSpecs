@@ -51,10 +51,7 @@ handlers must not modify `store`.
    `state.latest_eth1_data` of the canonical beacon chain remains consistent
    with the canonical Ethereum proof-of-work chain. If not, emergency manual
    intervention will be required.
-4. **Manual forks**: Manual forks may arbitrarily change the fork choice rule
-   but are expected to be enacted at epoch transitions, with the fork details
-   reflected in `state.fork`.
-5. **Implementation**: The implementation found in this specification is
+4. **Implementation**: The implementation found in this specification is
    constructed for ease of understanding rather than for optimization in
    computation, space, or any other resource. A number of optimized alternatives
    can be found [here](https://github.com/protolambda/lmd-ghost).
