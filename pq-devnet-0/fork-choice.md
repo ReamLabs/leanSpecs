@@ -20,6 +20,7 @@ protocol, etc.) that easily warrants its own devnet(s).
 
 - Remove `ExecutionEngine` related mechanisms, e.g. `notify_forkchoice_updated()`,
   `should_override_forkchoice_update`, `PayloadAttributes`, etc.
+- Remove slashings e.g. `on_attester_slashing()`, etc.
 
 ## Fork choice
 
@@ -33,8 +34,6 @@ update `store` by running:
   received
 - `on_attestation(store, attestation)` whenever an attestation `attestation` is
   received
-- `on_attester_slashing(store, attester_slashing)` whenever an attester slashing
-  `attester_slashing` is received
 
 Any of the above handlers that trigger an unhandled exception (e.g. a failed
 assert or an out-of-range list access) are considered invalid. Invalid calls to
@@ -853,28 +852,4 @@ def on_attestation(store: Store, attestation: Attestation, is_from_block: bool =
 
     # Update latest messages for attesting indices
     update_latest_messages(store, indexed_attestation.attesting_indices, attestation)
-```
-
-#### `on_attester_slashing`
-
-*Note*: `on_attester_slashing` should be called while syncing and a client MUST
-maintain the equivocation set of `AttesterSlashing`s from at least the latest
-finalized checkpoint.
-
-```python
-def on_attester_slashing(store: Store, attester_slashing: AttesterSlashing) -> None:
-    """
-    Run ``on_attester_slashing`` immediately upon receiving a new ``AttesterSlashing``
-    from either within a block or directly on the wire.
-    """
-    attestation_1 = attester_slashing.attestation_1
-    attestation_2 = attester_slashing.attestation_2
-    assert is_slashable_attestation_data(attestation_1.data, attestation_2.data)
-    state = store.block_states[store.justified_checkpoint.root]
-    assert is_valid_indexed_attestation(state, attestation_1)
-    assert is_valid_indexed_attestation(state, attestation_2)
-
-    indices = set(attestation_1.attesting_indices).intersection(attestation_2.attesting_indices)
-    for index in indices:
-        store.equivocating_indices.add(index)
 ```
