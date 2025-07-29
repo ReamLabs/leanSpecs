@@ -5,70 +5,6 @@
 This document is the beacon chain fork choice spec, part of Phase 0. It assumes
 the [beacon chain state transition function spec](./beacon-chain.md).
 
-## Fork choice
-
-The head block root associated with a `store` is defined as `get_head(store)`.
-At genesis, let `store = get_forkchoice_store(genesis_state, genesis_block)` and
-update `store` by running:
-
-- `on_tick(store, time)` whenever `time > store.time` where `time` is the
-  current Unix time
-- `on_block(store, block)` whenever a block `block: SignedBeaconBlock` is
-  received
-- `on_attestation(store, attestation)` whenever an attestation `attestation` is
-  received
-- `on_attester_slashing(store, attester_slashing)` whenever an attester slashing
-  `attester_slashing` is received
-
-Any of the above handlers that trigger an unhandled exception (e.g. a failed
-assert or an out-of-range list access) are considered invalid. Invalid calls to
-handlers must not modify `store`.
-
-*Notes*:
-
-1. **Leap seconds**: Slots will last `SECONDS_PER_SLOT + 1` or
-   `SECONDS_PER_SLOT - 1` seconds around leap seconds. This is automatically
-   handled by [UNIX time](https://en.wikipedia.org/wiki/Unix_time).
-2. **Honest clocks**: Honest nodes are assumed to have clocks synchronized
-   within `SECONDS_PER_SLOT` seconds of each other.
-3. **Eth1 data**: The large `ETH1_FOLLOW_DISTANCE` specified in the
-   [honest validator document](./validator.md) should ensure that
-   `state.latest_eth1_data` of the canonical beacon chain remains consistent
-   with the canonical Ethereum proof-of-work chain. If not, emergency manual
-   intervention will be required.
-4. **Manual forks**: Manual forks may arbitrarily change the fork choice rule
-   but are expected to be enacted at epoch transitions, with the fork details
-   reflected in `state.fork`.
-5. **Implementation**: The implementation found in this specification is
-   constructed for ease of understanding rather than for optimization in
-   computation, space, or any other resource. A number of optimized alternatives
-   can be found [here](https://github.com/protolambda/lmd-ghost).
-
-### Custom types
-
-| Name        | SSZ equivalent | Description                              |
-| ----------- | -------------- | ---------------------------------------- |
-| `PayloadId` | `Bytes8`       | Identifier of a payload building process |
-
-### Constant
-
-| Name                 | Value       |
-| -------------------- | ----------- |
-| `INTERVALS_PER_SLOT` | `uint64(3)` |
-
-### Configuration
-
-| Name                                  | Value         |
-| ------------------------------------- | ------------- |
-| `PROPOSER_SCORE_BOOST`                | `uint64(40)`  |
-| `REORG_HEAD_WEIGHT_THRESHOLD`         | `uint64(20)`  |
-| `REORG_PARENT_WEIGHT_THRESHOLD`       | `uint64(160)` |
-| `REORG_MAX_EPOCHS_SINCE_FINALIZATION` | `Epoch(2)`    |
-
-- The proposer score boost and re-org weight threshold are percentage values
-  that are measured with respect to the weight of a single committee. See
-  `calculate_committee_fraction`.
-
 ## Protocols
 
 ### `ExecutionEngine`
@@ -220,6 +156,70 @@ later chooses the canonical head rather than its parent, then this is a
 misprediction that will cause the node to construct a payload with less notice.
 The result of `get_proposer_head` MUST be preferred over the result of
 `should_override_forkchoice_update` (when proposer reorgs are enabled).
+
+## Fork choice
+
+The head block root associated with a `store` is defined as `get_head(store)`.
+At genesis, let `store = get_forkchoice_store(genesis_state, genesis_block)` and
+update `store` by running:
+
+- `on_tick(store, time)` whenever `time > store.time` where `time` is the
+  current Unix time
+- `on_block(store, block)` whenever a block `block: SignedBeaconBlock` is
+  received
+- `on_attestation(store, attestation)` whenever an attestation `attestation` is
+  received
+- `on_attester_slashing(store, attester_slashing)` whenever an attester slashing
+  `attester_slashing` is received
+
+Any of the above handlers that trigger an unhandled exception (e.g. a failed
+assert or an out-of-range list access) are considered invalid. Invalid calls to
+handlers must not modify `store`.
+
+*Notes*:
+
+1. **Leap seconds**: Slots will last `SECONDS_PER_SLOT + 1` or
+   `SECONDS_PER_SLOT - 1` seconds around leap seconds. This is automatically
+   handled by [UNIX time](https://en.wikipedia.org/wiki/Unix_time).
+2. **Honest clocks**: Honest nodes are assumed to have clocks synchronized
+   within `SECONDS_PER_SLOT` seconds of each other.
+3. **Eth1 data**: The large `ETH1_FOLLOW_DISTANCE` specified in the
+   [honest validator document](./validator.md) should ensure that
+   `state.latest_eth1_data` of the canonical beacon chain remains consistent
+   with the canonical Ethereum proof-of-work chain. If not, emergency manual
+   intervention will be required.
+4. **Manual forks**: Manual forks may arbitrarily change the fork choice rule
+   but are expected to be enacted at epoch transitions, with the fork details
+   reflected in `state.fork`.
+5. **Implementation**: The implementation found in this specification is
+   constructed for ease of understanding rather than for optimization in
+   computation, space, or any other resource. A number of optimized alternatives
+   can be found [here](https://github.com/protolambda/lmd-ghost).
+
+### Custom types
+
+| Name        | SSZ equivalent | Description                              |
+| ----------- | -------------- | ---------------------------------------- |
+| `PayloadId` | `Bytes8`       | Identifier of a payload building process |
+
+### Constant
+
+| Name                 | Value       |
+| -------------------- | ----------- |
+| `INTERVALS_PER_SLOT` | `uint64(3)` |
+
+### Configuration
+
+| Name                                  | Value         |
+| ------------------------------------- | ------------- |
+| `PROPOSER_SCORE_BOOST`                | `uint64(40)`  |
+| `REORG_HEAD_WEIGHT_THRESHOLD`         | `uint64(20)`  |
+| `REORG_PARENT_WEIGHT_THRESHOLD`       | `uint64(160)` |
+| `REORG_MAX_EPOCHS_SINCE_FINALIZATION` | `Epoch(2)`    |
+
+- The proposer score boost and re-org weight threshold are percentage values
+  that are measured with respect to the weight of a single committee. See
+  `calculate_committee_fraction`.
 
 ### Helpers
 
