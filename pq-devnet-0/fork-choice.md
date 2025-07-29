@@ -23,6 +23,7 @@ protocol, etc.) that easily warrants its own devnet(s).
 - Remove slashings e.g. `on_attester_slashing()`, etc.
 - Remove The Merge-related logic (that was not explicitly removed in Capella)
 - Remove blobs
+- Epochs are not removed but `SLOTS_PER_EPOCH` is extended to a very large number
 
 ## Fork choice
 

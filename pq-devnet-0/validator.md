@@ -67,17 +67,6 @@ Set `block.parent_root = hash_tree_root(parent)`.
 
 #### Constructing the `BeaconBlockBody`
 
-##### Eth1 Data
-
-The `block.body.eth1_data` field is for block proposers to vote on recent Eth1
-data. This recent data contains an Eth1 block hash as well as the associated
-deposit root (as calculated by the `get_deposit_root()` method of the deposit
-contract) and deposit count after execution of the corresponding Eth1 block. If
-over half of the block proposers in the current Eth1 voting period vote for the
-same `eth1_data` then `state.eth1_data` updates immediately allowing new
-deposits to be processed. Each deposit in `block.body.deposits` must verify
-against `state.eth1_data.eth1_deposit_root`.
-
 ##### Attestations
 
 Up to `MAX_ATTESTATIONS`, aggregate attestations can be included in the `block`.
