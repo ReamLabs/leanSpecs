@@ -1,9 +1,20 @@
-# Phase 0 -- Beacon Chain Fork Choice
+# pqdevnet-0 Fork Choice
 
 ## Introduction
 
-This document is the beacon chain fork choice spec, part of Phase 0. It assumes
-the [beacon chain state transition function spec](./beacon-chain.md).
+This specs intend to be a bare-minimal fork choice rule that enables pqdevnet validators
+to attest to the same chain.
+
+It is originally based on the combined Beacon Chain fork choice specs from Phase0 to
+Electra. Fulu is excluded as its specs is a work in progress at the time of writing.
+
+### Why minimal Beacon fork choice than 3SF?
+
+- Beacon fork choice is battle-tested and well understood, therefore is ideal as a
+control factor for pqdevnet.
+- 3SF, on the other hand, is an entirely new mechanism with many non-battle-tested
+subcomponents (e.g. Majority Fork Choice function, modified TOB-SVD, a new finality
+protocol, etc.) that easily warrants its own devnet(s).
 
 ## Protocols
 
