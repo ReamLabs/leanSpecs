@@ -21,6 +21,8 @@ protocol, etc.) that easily warrants its own devnet(s).
 - Remove `ExecutionEngine` related mechanisms, e.g. `notify_forkchoice_updated()`,
   `should_override_forkchoice_update`, `PayloadAttributes`, etc.
 - Remove slashings e.g. `on_attester_slashing()`, etc.
+- Remove The Merge-related logic (that was not explicitly removed in Capella)
+- Remove blobs
 
 ## Fork choice
 
@@ -46,21 +48,10 @@ handlers must not modify `store`.
    handled by [UNIX time](https://en.wikipedia.org/wiki/Unix_time).
 2. **Honest clocks**: Honest nodes are assumed to have clocks synchronized
    within `SECONDS_PER_SLOT` seconds of each other.
-3. **Eth1 data**: The large `ETH1_FOLLOW_DISTANCE` specified in the
-   [honest validator document](./validator.md) should ensure that
-   `state.latest_eth1_data` of the canonical beacon chain remains consistent
-   with the canonical Ethereum proof-of-work chain. If not, emergency manual
-   intervention will be required.
-4. **Implementation**: The implementation found in this specification is
+3. **Implementation**: The implementation found in this specification is
    constructed for ease of understanding rather than for optimization in
    computation, space, or any other resource. A number of optimized alternatives
    can be found [here](https://github.com/protolambda/lmd-ghost).
-
-### Custom types
-
-| Name        | SSZ equivalent | Description                              |
-| ----------- | -------------- | ---------------------------------------- |
-| `PayloadId` | `Bytes8`       | Identifier of a payload building process |
 
 ### Constant
 
@@ -82,110 +73,6 @@ handlers must not modify `store`.
   `calculate_committee_fraction`.
 
 ### Helpers
-
-#### `PayloadAttributes`
-
-Used to signal to initiate the payload build process via
-`notify_forkchoice_updated`.
-
-```python
-@dataclass
-class PayloadAttributes(object):
-    timestamp: uint64
-    prev_randao: Bytes32
-    suggested_fee_recipient: ExecutionAddress
-    # [New in Capella]
-    withdrawals: Sequence[Withdrawal]
-    # [New in Deneb:EIP4788]
-    parent_beacon_block_root: Root
-```
-
-#### `PowBlock`
-
-```python
-class PowBlock(Container):
-    block_hash: Hash32
-    parent_hash: Hash32
-    total_difficulty: uint256
-```
-
-#### `is_data_available`
-
-*[New in Deneb:EIP4844]*
-
-The implementation of `is_data_available` will become more sophisticated during
-later scaling upgrades. Initially, verification requires every verifying actor
-to retrieve all matching `Blob`s and `KZGProof`s, and validate them with
-`verify_blob_kzg_proof_batch`.
-
-The block MUST NOT be considered valid until all valid `Blob`s have been
-downloaded. Blocks that have been previously validated as available SHOULD be
-considered available even if the associated `Blob`s have subsequently been
-pruned.
-
-*Note*: Extraneous or invalid Blobs (in addition to KZG expected/referenced
-valid blobs) received on the p2p network MUST NOT invalidate a block that is
-otherwise valid and available.
-
-```python
-def is_data_available(
-    beacon_block_root: Root, blob_kzg_commitments: Sequence[KZGCommitment]
-) -> bool:
-    # `retrieve_blobs_and_proofs` is implementation and context dependent
-    # It returns all the blobs for the given block root, and raises an exception if not available
-    # Note: the p2p network does not guarantee sidecar retrieval outside of
-    # `MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS`
-    blobs, proofs = retrieve_blobs_and_proofs(beacon_block_root)
-
-    return verify_blob_kzg_proof_batch(blobs, blob_kzg_commitments, proofs)
-```
-
-#### `get_pow_block`
-
-Let `get_pow_block(block_hash: Hash32) -> Optional[PowBlock]` be the function
-that given the hash of the PoW block returns its data. It may result in `None`
-if the requested block is not yet available.
-
-*Note*: The `eth_getBlockByHash` JSON-RPC method may be used to pull this
-information from an execution client.
-
-#### `is_valid_terminal_pow_block`
-
-Used by fork-choice handler, `on_block`.
-
-```python
-def is_valid_terminal_pow_block(block: PowBlock, parent: PowBlock) -> bool:
-    is_total_difficulty_reached = block.total_difficulty >= TERMINAL_TOTAL_DIFFICULTY
-    is_parent_total_difficulty_valid = parent.total_difficulty < TERMINAL_TOTAL_DIFFICULTY
-    return is_total_difficulty_reached and is_parent_total_difficulty_valid
-```
-
-#### `validate_merge_block`
-
-```python
-def validate_merge_block(block: BeaconBlock) -> None:
-    """
-    Check the parent PoW block of execution payload is a valid terminal PoW block.
-
-    Note: Unavailable PoW block(s) may later become available,
-    and a client software MAY delay a call to ``validate_merge_block``
-    until the PoW block(s) become available.
-    """
-    if TERMINAL_BLOCK_HASH != Hash32():
-        # If `TERMINAL_BLOCK_HASH` is used as an override, the activation epoch must be reached.
-        assert compute_epoch_at_slot(block.slot) >= TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH
-        assert block.body.execution_payload.parent_hash == TERMINAL_BLOCK_HASH
-        return
-
-    pow_block = get_pow_block(block.body.execution_payload.parent_hash)
-    # Check if `pow_block` is available
-    assert pow_block is not None
-    pow_parent = get_pow_block(pow_block.parent_hash)
-    # Check if `pow_parent` is available
-    assert pow_parent is not None
-    # Check if `pow_block` is a valid terminal PoW block
-    assert is_valid_terminal_pow_block(pow_block, pow_parent)
-```
 
 #### `LatestMessage`
 
