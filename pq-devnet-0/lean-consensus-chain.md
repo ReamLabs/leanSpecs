@@ -4,17 +4,16 @@
 
 This document represents the specification for the pq-devnet chain.
 
+### Key differences from Beacon Chain specs
+
+- Removed signature aggregation data e.g. `aggregation_bits`
+- Removed checkpoints & FFG information, e.g. `source` and `target` checkpoints
+
 ## Preset
 
 *Note*: The below configuration is bundled as a preset: a bundle of
 configuration variables which are expected to differ between different modes of
 operation, e.g. testing, but not generally between different networks.
-
-### Time parameters
-
-| Name                               | Value                        |  Unit  |   Duration   |
-| ---------------------------------- | ---------------------------- | :----: | :----------: |
-| `SLOTS_PER_EPOCH`                  | `uint64(1000000)`            | slots  | 46.3 days    |
 
 ## Configuration
 
@@ -26,20 +25,7 @@ use a different configuration.
 
 | Name                               | Value                        |  Unit   |   Duration   |
 | ---------------------------------- | ---------------------------- | :-----: | :----------: |
-| `SECONDS_PER_SLOT`                 | `uint64(12)`                 | seconds | 12 seconds   |
-
-### Misc dependencies
-
-#### `AttestationData`
-
-```python
-class AttestationData(Container):
-    slot: Slot
-    index: CommitteeIndex
-    beacon_block_root: Root
-    source: Checkpoint
-    target: Checkpoint
-```
+| `SECONDS_PER_SLOT`                 | `uint64(4)`                  | seconds | 4 seconds    |
 
 ### Beacon operations
 
@@ -47,7 +33,31 @@ class AttestationData(Container):
 
 ```python
 class Attestation(Container):
-    aggregation_bits: Bitlist[MAX_VALIDATORS_PER_COMMITTEE]
     data: AttestationData
     signature: BLSSignature
+```
+
+#### `AttestationData`
+
+```python
+class AttestationData(Container):
+    slot: Slot
+    attester_index: ValidatorIndex
+    lean_block_root: Root
+```
+
+### Beacon state accessors
+
+#### `get_active_validator_indices`
+
+TODO: Update this to a static indices
+
+```python
+def get_active_validator_indices(state: BeaconState, epoch: Epoch) -> Sequence[ValidatorIndex]:
+    """
+    Return the sequence of active validator indices at ``epoch``.
+    """
+    return [
+        ValidatorIndex(i) for i, v in enumerate(state.validators) if is_active_validator(v, epoch)
+    ]
 ```
